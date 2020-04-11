@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Order;
 use App\OrderDetail;
+use Dnetix\Redirection\PlacetoPay;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +20,30 @@ class OrderController extends Controller
 
     /*Funcion restonar todos los productos creados en el sistema*/
     public function index() {
-        $products = Order::all();
+        $products = Order::orderBy('id', 'desc')->get();
+
+        $placeToPay = $this->placeToPay();
+
+        foreach ($products as $value) {
+            $statusOld = $value->status;
+
+            if ($statusOld === 'CREATED') {
+                $response = $placeToPay->query($value->request_id);
+
+                if ($response->status()->status() === 'REJECTED') {
+                    $value->status = 'REJECTED';
+                } else if ($response->status()->status() === 'APPROVED') {
+                    $value->status = 'PAYED';
+                } else if ($response->status()->status() === 'PENDING') {
+                    $value->status = 'CREATED';
+                }
+
+                if ($statusOld != $value->status) {
+                    $value->save();
+                }
+            }
+
+        }
 
         return response()->json([
             'success' => true,
@@ -28,11 +52,13 @@ class OrderController extends Controller
     }
 
     public function store(Request $request) {
+        DB::beginTransaction();
         try {
             $this->validate($request, [
                 'products'     => 'required'
             ]);
 
+            $total = 0;
             $products = $request->products;
 
             $order             = new Order();
@@ -48,26 +74,70 @@ class OrderController extends Controller
                     $orderDetail->product_id = $value['id'];
 
                     $orderDetail->save();
+                    $total = $total + $value['price'];
                 }
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'La orden se ha creado con éxito'
-                ]);
+                $placeToPay = $this->placeToPay();
+
+                $reference = 'ORDEN_' . $order->id;
+                $requestSend = [
+                    "locale" => "es_CO",
+                    "buyer" => [
+                        "name" => $this->user->name,
+                        "email" => $this->user->email,
+                        "mobile" => $this->user->phone,
+                    ],
+                    'payment' => [
+                        'reference' => $reference,
+                        'description' => 'Compra en My store',
+                        'amount' => [
+                            'currency' => 'COP',
+                            'total' => $total,
+                        ],
+                    ],
+                    'expiration' => date('c', strtotime('+6 minutes')),
+                    'returnUrl' => 'http://localhost:4200/#/listOrder',
+                    'ipAddress' => '127.0.0.1',
+                    'userAgent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Safari/537.36',
+                ];
+
+                $response = $placeToPay->request($requestSend);
+
+                if ($response->isSuccessful()) {
+                    // STORE THE $response->requestId() and $response->processUrl() on your DB associated with the payment order
+                    // Redirect the client to the processUrl or display it on the JS extension
+                    $order->request_id = $response->requestId();
+                    $order->process_url = $response->processUrl();
+
+                    $order->save();
+
+                    DB::commit();
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'La orden se ha creado con éxito y será redireccionado a la pasarela de pago.',
+                        'processUrl' =>  $order->process_url
+                    ]);
+                } else {
+                    // Mensaje de error
+                    throw new \InvalidArgumentException($response->status()->message());
+                }
             } else {
                 throw new \InvalidArgumentException('La orden no se pudo crear');
             }
         }catch (\InvalidArgumentException $ex){
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => $ex->getMessage()
             ], 500);
         }catch (ValidationException $ex ) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => $ex->errors()
             ], 400);
         }catch (\Exception $ex){
+            DB::rollBack();
             return response()->json([
                 'success' => false,
                 'message' => $ex->getMessage()

@@ -20,7 +20,14 @@ class OrderController extends Controller
 
     /*Funcion restonar todos los productos creados en el sistema*/
     public function index() {
-        $products = Order::orderBy('id', 'desc')->get();
+
+        if ($this->user->profile === env('PROFILECUSTOMER')) {
+            $products = Order::where('user_id', $this->user->id)
+                ->orderBy('id', 'desc')
+                ->get();
+        } else if ($this->user->profile === env('PROFILEADMIN')) {
+            $products = Order::orderBy('id', 'desc')->get();
+        }
 
         $placeToPay = $this->placeToPay();
 

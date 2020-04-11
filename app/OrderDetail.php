@@ -13,8 +13,13 @@ class OrderDetail extends Model
         'order_id', 'product_id'
     ];
 
-    /*public function rooms()
+    public function order()
     {
-        return $this->hasMany('App\Room', 'cod_hotel', 'cod_hotel');
-    }*/
+        return $this->belongsTo('App\Order', 'order_id');
+    }
+
+    public function product()
+    {
+        return $this->belongsTo('App\Product', 'product_id');
+    }
 }

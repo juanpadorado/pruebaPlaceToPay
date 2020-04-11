@@ -13,8 +13,8 @@ class Product extends Model
         'name', 'description', 'price'
     ];
 
-    /*public function rooms()
+    public function orderDetails()
     {
-        return $this->hasMany('App\Room', 'cod_hotel', 'cod_hotel');
-    }*/
+        return $this->hasMany('App\OrderDetail', 'product_id', 'id');
+    }
 }

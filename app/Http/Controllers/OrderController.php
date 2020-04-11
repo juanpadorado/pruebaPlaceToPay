@@ -87,26 +87,7 @@ class OrderController extends Controller
                 $placeToPay = $this->placeToPay();
 
                 $reference = 'ORDEN_' . $order->id;
-                $requestSend = [
-                    "locale" => "es_CO",
-                    "buyer" => [
-                        "name" => $this->user->name,
-                        "email" => $this->user->email,
-                        "mobile" => $this->user->phone,
-                    ],
-                    'payment' => [
-                        'reference' => $reference,
-                        'description' => 'Compra en My store',
-                        'amount' => [
-                            'currency' => 'COP',
-                            'total' => $total,
-                        ],
-                    ],
-                    'expiration' => date('c', strtotime('+6 minutes')),
-                    'returnUrl' => 'http://localhost:4200/#/listOrder',
-                    'ipAddress' => '127.0.0.1',
-                    'userAgent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Safari/537.36',
-                ];
+                $requestSend = $requestSend = $this->infoPay($reference, $total);
 
                 $response = $placeToPay->request($requestSend);
 
@@ -167,4 +148,89 @@ class OrderController extends Controller
         ]);
     }
 
+    public function retryPayment(Request $request) {
+        DB::beginTransaction();
+        try {
+            $this->validate($request, [
+                'idOrder'     => 'required'
+            ]);
+
+            $total = 0;
+            $order = Order::find($request->idOrder);
+
+            foreach ($order->orderDetails as $value){
+                $total = $total + $value->product->price;
+            }
+
+            $order->status     = 'CREATED';
+
+            $placeToPay = $this->placeToPay();
+
+            $reference = 'ORDEN_' . $order->id;
+            $requestSend = $this->infoPay($reference, $total);
+
+            $response = $placeToPay->request($requestSend);
+
+            if ($response->isSuccessful()) {
+                // STORE THE $response->requestId() and $response->processUrl() on your DB associated with the payment order
+                // Redirect the client to the processUrl or display it on the JS extension
+                $order->request_id = $response->requestId();
+                $order->process_url = $response->processUrl();
+
+                $order->save();
+
+                DB::commit();
+                return response()->json([
+                    'success' => true,
+                    'message' => 'El pago de la orden se intentara nuevamente y será redireccionado a la pasarela de pago.',
+                    'processUrl' =>  $order->process_url
+                ]);
+            } else {
+                // Mensaje de error
+                throw new \InvalidArgumentException($response->status()->message());
+            }
+
+        }catch (\InvalidArgumentException $ex){
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $ex->getMessage()
+            ], 500);
+        }catch (ValidationException $ex ) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $ex->errors()
+            ], 400);
+        }catch (\Exception $ex){
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $ex->getMessage()
+            ], 500);
+        }
+    }
+
+    public function infoPay($reference, $total) {
+        return [
+            "locale" => "es_CO",
+            "buyer" => [
+                "name" => $this->user->name,
+                "email" => $this->user->email,
+                "mobile" => $this->user->phone,
+            ],
+            'payment' => [
+                'reference' => $reference,
+                'description' => 'Compra en My store',
+                'amount' => [
+                    'currency' => 'COP',
+                    'total' => $total,
+                ],
+            ],
+            'expiration' => date('c', strtotime('+7 minutes')),
+            'returnUrl' => 'http://localhost:4200/#/listOrder',
+            'ipAddress' => '127.0.0.1',
+            'userAgent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Safari/537.36',
+        ];
+    }
 }

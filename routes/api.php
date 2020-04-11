@@ -35,5 +35,6 @@ Route::group(['middleware' => 'auth.jwt'], function () {
     Route::post('orderRegister', 'OrderController@store');
     Route::get('orders', 'OrderController@index');
     Route::get('orderDetail/{id}', 'OrderController@showDetail');
+    Route::post('retryPayment', 'OrderController@retryPayment');
 
 });

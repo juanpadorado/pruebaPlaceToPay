@@ -13,8 +13,8 @@ class Order extends Model
         'status', 'user_id'
     ];
 
-    /*public function rooms()
+    public function orderDetails()
     {
-        return $this->hasMany('App\Room', 'cod_hotel', 'cod_hotel');
-    }*/
+        return $this->hasMany('App\OrderDetail', 'order_id', 'id');
+    }
 }
